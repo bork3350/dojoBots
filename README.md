@@ -5,7 +5,6 @@ The metaplanet dojo discord uses a number of Price ticker bots with various feat
 In the event Bork is no longer able to host the bots, here's how someone else would go about doing it:
 - Download and install Python
 - Install the required packages: pip install discord.py yfinance python-dotenv aiohttp pytz
-- Create the required .env files as outlined in the code
 - Add the Discord_bot_token keys to the .env files (see Dojo mod post)
 - Use the appropriate command to launch each bot: start python c:\users\username\path\to\bot\main_mp.py for example
 
