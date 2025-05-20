@@ -8,7 +8,8 @@ In the event Bork is no longer able to host the bots, here's how someone else wo
 - Create the required .env files as outlined in the code
 - Add the Discord_bot_token keys to the .env files (see Dojo mod post)
 - Use the appropriate command to launch each bot: start python c:\users\username\path\to\bot\main_mp.py for example
-  
+
+Here is the current post regarding bots in the #useful-posts channel:
 # **Dojo Price Bots Overview**
 
 Click the People icon (top-right) to see the 4 active price bots:
