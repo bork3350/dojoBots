@@ -24,19 +24,26 @@ def get_nyse_market_times():
     ny_tz = pytz.timezone("America/New_York")
     now = datetime.now(ny_tz)
 
-    events = [
-        ("Market Open", now.replace(hour=9, minute=30, second=0, microsecond=0)),
-        ("Market Close", now.replace(hour=16, minute=0, second=0, microsecond=0))
-    ]
+    def is_weekday(dt):
+        return dt.weekday() < 5  # Monday=0, Sunday=6
 
-    upcoming = []
-    for label, dt in events:
-        if dt > now:
-            delta = dt - now
-            total_minutes = int(delta.total_seconds() // 60)
-            upcoming.append((label, total_minutes))
+    while True:
+        events = [
+            ("Market Open", now.replace(hour=9, minute=30, second=0, microsecond=0)),
+            ("Market Close", now.replace(hour=16, minute=0, second=0, microsecond=0))
+        ]
 
-    return upcoming
+        for label, dt in events:
+            if dt > now:
+                delta = dt - now
+                total_minutes = int(delta.total_seconds() // 60)
+                return [(label, total_minutes)]
+
+        # If no events left today, move to next weekday
+        now += timedelta(days=1)
+        now = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        while not is_weekday(now):
+            now += timedelta(days=1)
 
 def get_mtplf_price_and_change():
     ticker = yf.Ticker("MTPLF")
@@ -56,10 +63,10 @@ def get_mtplf_price_and_change():
         else:
             jpy_price = None
 
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ðŸ“ˆ Price fetched: ${last:.2f}, Change: {change:+.2f}%, Â¥{jpy_price:.0f}" if jpy_price else "JPY price not available.")
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 📈 Price fetched: ${last:.2f}, Change: {change:+.2f}%, ¥{jpy_price:.0f}" if jpy_price else "JPY price not available.")
         return last, change, jpy_price
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] âš ï¸ Not enough data to calculate price change.")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Not enough data to calculate price change.")
     return 0.0, 0.0, None
 
 
@@ -75,20 +82,20 @@ async def check_rate_limit():
 # When bot is ready
 @client.event
 async def on_ready():
-    print(f"âœ… Metaplanet Bot Logged in as {client.user}")
+    print(f"✅ Metaplanet Bot Logged in as {client.user}")
     last_status = None
     global update_count
 
     while True:
         try:
             update_count += 1
-            print(f"\nðŸ”„ Update Cycle #{update_count} Starting...")
+            print(f"\n🔄 Update Cycle #{update_count} Starting...")
 
             # Fetch USD price, % change, and JPY equivalent
             price, change, jpy_price = get_mtplf_price_and_change()
             if price > 0:
                 price_str = f"${price:.2f}"
-                jpy_str = f"Â¥{jpy_price:.0f}" if jpy_price else ""
+                jpy_str = f"¥{jpy_price:.0f}" if jpy_price else ""
                 change_str = f"{change:+.2f}%"
                 combined_status = f"{price_str}  {jpy_str}  {change_str}"
             else:
@@ -100,17 +107,17 @@ async def on_ready():
                     activity=discord.CustomActivity(name=combined_status)
                 )
                 last_status = combined_status
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ðŸŸ¢ Status updated to: '{combined_status}'")
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🟢 Status updated to: '{combined_status}'")
 
                 # Optional: Check rate limit info
                 await check_rate_limit()
             else:
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] âš ï¸ Status unchanged, skipping update.")
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Status unchanged, skipping update.")
 
             await asyncio.sleep(15)
 
         except Exception as e:
-            print(f"âŒ Error during update cycle: {e}")
+            print(f"❌ Error during update cycle: {e}")
             await asyncio.sleep(15)
 
 @client.event
@@ -118,8 +125,10 @@ async def on_message(message):
     if message.author == client.user:
         return
 
+    content = message.content.strip().lower()
+
+    # Respond to DMs
     if isinstance(message.channel, discord.DMChannel):
-        content = message.content.strip().lower()
         if content in {"wen", "when", "schedule", "next"}:
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] DM command received from {message.author}: '{message.content}'")
 
@@ -134,10 +143,33 @@ async def on_message(message):
                 if mins > 0 or not parts:
                     parts.append(f"{mins} minute{'s' if mins != 1 else ''}")
                 time_str = " ".join(parts)
-                reply = f"ðŸ• Next up: **{label}** in **{time_str}**."
+                reply = f"Next up: **{label}** in **{time_str}**."
                 await message.channel.send(reply)
             else:
-                await message.channel.send("ðŸ“‰ The NYSE market is closed for the day.")
+                await message.channel.send("The NYSE market is closed for the day.")
+        return
+
+    # Respond to mentions like "@bot wen"
+    if client.user in message.mentions:
+        if any(word in content for word in {"wen", "when", "schedule", "next"}):
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Mention detected from {message.author}: '{message.content}'")
+
+            upcoming = get_nyse_market_times()
+            if upcoming:
+                label, minutes = upcoming[0]
+                hours = minutes // 60
+                mins = minutes % 60
+                parts = []
+                if hours > 0:
+                    parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+                if mins > 0 or not parts:
+                    parts.append(f"{mins} minute{'s' if mins != 1 else ''}")
+                time_str = " ".join(parts)
+                reply = f"Next up: **{label}** in **{time_str}**."
+                await message.channel.send(reply)
+            else:
+                await message.channel.send("The NYSE market is closed for the day.")
+
 
 # Run the bot
 client.run(TOKEN)
