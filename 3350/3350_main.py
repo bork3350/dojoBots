@@ -122,17 +122,16 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Only respond to direct messages (DMs)
-    if isinstance(message.channel, discord.DMChannel):
-        content = message.content.strip().lower()
+    content = message.content.strip().lower()
 
+    # Handle DMs
+    if isinstance(message.channel, discord.DMChannel):
         if content in {"wen", "when", "schedule", "next"}:
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] DM command received from {message.author}: '{message.content}'")
             
             upcoming = get_tse_market_times()
             if upcoming:
-                next_event = upcoming[0]
-                label, minutes = next_event
+                label, minutes = upcoming[0]
                 hours = minutes // 60
                 mins = minutes % 60
                 parts = []
@@ -147,22 +146,38 @@ async def on_message(message):
                 await message.channel.send("📉 The Tokyo market is closed for the day.")
             return
 
-
-        # Otherwise, try to convert yen
+        # Yen conversion via DM
         try:
             yen_amount = float(message.content.replace(",", "").strip("¥¥"))
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] DM received: ¥{yen_amount:,.0f}")
-
             if latest_usd_to_jpy:
                 usd_amount = yen_amount / latest_usd_to_jpy
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] DM conversion: ¥{yen_amount:,.0f} = ${usd_amount:,.2f}")
                 await message.channel.send(f"¥{yen_amount:,.0f} is approximately ${usd_amount:,.2f} USD.")
             else:
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] No cached exchange rate available.")
                 await message.channel.send("Exchange rate not yet available. Please try again shortly.")
         except ValueError:
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Invalid DM input: {message.content}")
             await message.channel.send("Please send a valid number in yen (e.g., 13000) or type `wen`.")
+        return
+
+    # Handle mentions in public channels
+    if bot.user in message.mentions and any(word in content for word in {"wen", "when", "schedule", "next"}):
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Mention with trigger word received from {message.author}: '{message.content}'")
+        
+        upcoming = get_tse_market_times()
+        if upcoming:
+            label, minutes = upcoming[0]
+            hours = minutes // 60
+            mins = minutes % 60
+            parts = []
+            if hours > 0:
+                parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+            if mins > 0 or not parts:
+                parts.append(f"{mins} minute{'s' if mins != 1 else ''}")
+            time_str = " ".join(parts)
+            reply = f"🕐 Next up: **{label}** in **{time_str}**."
+            await message.channel.send(reply)
+        else:
+            await message.channel.send("📉 The Tokyo market is closed for the day.")
+
 
 @bot.slash_command(name="exportmembers", description="Export the member list with join dates")
 async def exportmembers(ctx: discord.ApplicationContext):
