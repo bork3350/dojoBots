@@ -8,6 +8,7 @@ from pathlib import Path
 import aiohttp
 from datetime import datetime, timedelta
 import pytz
+import json
 
 # Load environment variables
 env_path = Path(__file__).parent / ".env.mtplf"
@@ -16,9 +17,28 @@ load_dotenv(dotenv_path=env_path)
 TOKEN = os.environ['DISCORD_BOT_TOKEN']
 
 intents = discord.Intents.default()
+intents.message_content = True  # Required to read message content for filtering
+intents.members = True          # Needed to fetch member roles
 client = discord.Client(intents=intents)
 
 update_count = 0  # Count how many update cycles have occurred
+
+# Setup path for banned_words.json in same folder as this script
+script_folder = Path(__file__).parent
+banned_words_path = script_folder / "banned_words.json"
+
+# Load banned words from file or create empty dict
+if banned_words_path.exists():
+    with open(banned_words_path, "r", encoding="utf-8") as f:
+        banned_words = json.load(f)
+else:
+    banned_words = {}
+    with open(banned_words_path, "w", encoding="utf-8") as f:
+        json.dump(banned_words, f, indent=2)
+
+def save_banned_words():
+    with open(banned_words_path, "w", encoding="utf-8") as f:
+        json.dump(banned_words, f, indent=2)
 
 def get_nyse_market_times():
     ny_tz = pytz.timezone("America/New_York")
@@ -76,13 +96,13 @@ async def check_rate_limit():
     headers = {'Authorization': f'Bot {TOKEN}'}
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=headers) as response:
-            print("?? Discord API Rate Limit Headers:")
+            print("🕒 Discord API Rate Limit Headers:")
             print(f"  X-RateLimit-Limit:        {response.headers.get('X-RateLimit-Limit')}")
             
 # When bot is ready
 @client.event
 async def on_ready():
-    print(f"✅ Metaplanet Bot Logged in as {client.user}")
+    print(f"✔️ Metaplanet Bot Logged in as {client.user}")
     last_status = None
     global update_count
 
@@ -107,7 +127,7 @@ async def on_ready():
                     activity=discord.CustomActivity(name=combined_status)
                 )
                 last_status = combined_status
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 🟢 Status updated to: '{combined_status}'")
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 📰 Status updated to: '{combined_status}'")
 
                 # Optional: Check rate limit info
                 await check_rate_limit()
@@ -125,51 +145,122 @@ async def on_message(message):
     if message.author == client.user:
         return
 
-    content = message.content.strip().lower()
+    content = message.content.strip()
+    content_lower = content.lower()
 
-    # Respond to DMs
-    if isinstance(message.channel, discord.DMChannel):
-        if content in {"wen", "when", "schedule", "next"}:
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] DM command received from {message.author}: '{message.content}'")
+    # Command handling only for roles 'moderator' and 'admin'
+    def is_mod_or_admin(member):
+        roles = [role.name.lower() for role in member.roles]
+        return 'moderator' in roles or 'admin' in roles
 
-            upcoming = get_nyse_market_times()
-            if upcoming:
-                label, minutes = upcoming[0]
-                hours = minutes // 60
-                mins = minutes % 60
-                parts = []
-                if hours > 0:
-                    parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
-                if mins > 0 or not parts:
-                    parts.append(f"{mins} minute{'s' if mins != 1 else ''}")
-                time_str = " ".join(parts)
-                reply = f"Next up: **{label}** in **{time_str}**."
-                await message.channel.send(reply)
+    if content_lower.startswith("!add-bad") or content_lower.startswith("!remove-bad") or content_lower.startswith("!list-bad"):
+        if not is_mod_or_admin(message.author):
+            await message.channel.send("❌ You don't have permission to use this command.")
+            return
+
+        parts = content.split(maxsplit=2)
+        if len(parts) < 2:
+            await message.channel.send("❌ Invalid command format.")
+            return
+
+        cmd = parts[0].lower()
+
+        if cmd == "!list-bad":
+            if len(parts) != 2:
+                await message.channel.send("❌ Usage: !list-bad <channel_name>")
+                return
+            channel_name = parts[1].lower()
+            # Get channel by name in guild
+            target_channel = discord.utils.get(message.guild.channels, name=channel_name)
+            if not target_channel:
+                await message.channel.send(f"❌ Channel '{channel_name}' not found.")
+                return
+
+            banned_list = banned_words.get(channel_name, [])
+            if banned_list:
+                banned_formatted = ", ".join(banned_list)
+                await message.channel.send(f"🛑 Banned words/phrases in #{channel_name}: {banned_formatted}")
             else:
-                await message.channel.send("The NYSE market is closed for the day.")
+                await message.channel.send(f"ℹ️ No banned words/phrases set for #{channel_name}.")
+
+        elif cmd == "!add-bad":
+            if len(parts) != 3:
+                await message.channel.send("❌ Usage: !add-bad <channel_name> <phrase>")
+                return
+            channel_name = parts[1].lower()
+            phrase = parts[2].lower()
+
+            target_channel = discord.utils.get(message.guild.channels, name=channel_name)
+            if not target_channel:
+                await message.channel.send(f"❌ Channel '{channel_name}' not found.")
+                return
+
+            banned_list = banned_words.get(channel_name, [])
+            if phrase in banned_list:
+                await message.channel.send(f"⚠️ '{phrase}' is already banned in #{channel_name}.")
+                return
+
+            banned_list.append(phrase)
+            banned_words[channel_name] = banned_list
+            save_banned_words()
+            await message.channel.send(f"✅ Added banned phrase '{phrase}' to #{channel_name}.")
+
+        elif cmd == "!remove-bad":
+            if len(parts) != 3:
+                await message.channel.send("❌ Usage: !remove-bad <channel_name> <phrase>")
+                return
+            channel_name = parts[1].lower()
+            phrase = parts[2].lower()
+
+            target_channel = discord.utils.get(message.guild.channels, name=channel_name)
+            if not target_channel:
+                await message.channel.send(f"❌ Channel '{channel_name}' not found.")
+                return
+
+            banned_list = banned_words.get(channel_name, [])
+            if phrase not in banned_list:
+                await message.channel.send(f"⚠️ '{phrase}' is not in the banned list for #{channel_name}.")
+                return
+
+            banned_list.remove(phrase)
+            banned_words[channel_name] = banned_list
+            save_banned_words()
+            await message.channel.send(f"✅ Removed banned phrase '{phrase}' from #{channel_name}.")
+
         return
 
-    # Respond to mentions like "@bot wen"
-    if client.user in message.mentions:
-        if any(word in content for word in {"wen", "when", "schedule", "next"}):
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Mention detected from {message.author}: '{message.content}'")
+    # Check for banned words/phrases on all other messages in the guild (non-DM)
+    if message.guild:
+        channel_name = message.channel.name.lower()
+        banned_list = banned_words.get(channel_name, [])
 
-            upcoming = get_nyse_market_times()
-            if upcoming:
-                label, minutes = upcoming[0]
-                hours = minutes // 60
-                mins = minutes % 60
-                parts = []
-                if hours > 0:
-                    parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
-                if mins > 0 or not parts:
-                    parts.append(f"{mins} minute{'s' if mins != 1 else ''}")
-                time_str = " ".join(parts)
-                reply = f"Next up: **{label}** in **{time_str}**."
-                await message.channel.send(reply)
-            else:
-                await message.channel.send("The NYSE market is closed for the day.")
+        # Check if any banned phrase is in the message content (case insensitive)
+        triggered_phrase = None
+        for phrase in banned_list:
+            if phrase in content_lower:
+                triggered_phrase = phrase
+                break
 
+        if triggered_phrase:
+            try:
+                # Delete offending message
+                await message.delete()
+
+                # DM user explaining the deletion
+                dm_msg = f"Your message in #{channel_name} was deleted because it contained a banned phrase: '{triggered_phrase}'. Please adhere to the server rules."
+                await message.author.send(dm_msg)
+
+                # Notify moderators channel
+                mod_channel = discord.utils.get(message.guild.channels, name="moderator-only")
+                if mod_channel:
+                    notify_msg = (f"🚨 Message deleted in #{channel_name}.\n"
+                                  f"User: {message.author.mention} ({message.author})\n"
+                                  f"Phrase: '{triggered_phrase}'\n"
+                                  f"Original message: {content}")
+                    await mod_channel.send(notify_msg)
+
+            except Exception as e:
+                print(f"Error handling banned phrase: {e}")
 
 # Run the bot
 client.run(TOKEN)
