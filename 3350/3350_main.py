@@ -10,7 +10,9 @@ import csv
 import io
 from datetime import datetime, timedelta
 import pytz
-
+import requests  # NEW
+from bs4 import BeautifulSoup  # NEW
+import re
 
 # Load .env file
 env_path = Path(__file__).parent / ".env.3350"
@@ -49,7 +51,6 @@ def get_tse_market_times():
 
     return upcoming
 
-
 def get_3350_price_and_change():
     global latest_usd_to_jpy
     ticker = yf.Ticker("3350.T")
@@ -75,18 +76,50 @@ def get_3350_price_and_change():
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Not enough data to calculate price change.")
     return 0.0, 0.0, None
 
+def get_pts_price_3350():
+    url = "https://www.sbisec.co.jp/ETGate/?_ControlID=WPLETsiR001Control&_DataStoreID=DSWPLETsiR001Control&_PageID=WPLETsiR001Idtl10&_ActionID=getInfoOfCurrentMarket&stock_sec_code_mul=3350&exchange_code=PTS"
+    headers = {"User-Agent": "Mozilla/5.0"}
+
+    try:
+        print(f"[DEBUG] Fetching PTS price from: {url}")
+        response = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.content, "html.parser")
+
+        tables = soup.find_all("table")
+        print(f"[DEBUG] Found {len(tables)} tables.")
+
+        for idx, table in enumerate(tables):
+            text = table.get_text(separator='', strip=True)
+            if "現在値" in text:
+                print(f"[DEBUG] Raw text from matched table {idx}: {text[:500]}")  # Truncate to avoid overload
+
+                # Regex to match 現在値 + optional whitespace + number (with optional commas or decimals)
+                match = re.search(r"現在値\s*([0-9,]+(?:\.\d+)?)", text)
+                if match:
+                    price_str = match.group(1).replace(',', '')
+                    print(f"[DEBUG] 🎯 Extracted PTS Price: {price_str}")
+                    return price_str
+                else:
+                    print(f"[DEBUG] ❌ Could not extract price from table {idx}")
+
+        print("[DEBUG] ❌ Could not find any matching table containing '現在値'")
+        return None
+
+    except Exception as e:
+        print(f"[ERROR] Failed to fetch or parse PTS price: {e}")
+        return None
+
 
 @bot.event
 async def on_ready():
     print(f"3350 Bot Logged in as {bot.user}")
     update_status.start()
 
-
 @tasks.loop(seconds=15)
 async def update_status():
     global last_status
     try:
-        print(f"\nUpdate Cycle Starting v6...")
+        print(f"\nUpdate Cycle Starting v7...")
 
         price, change, usd_price = get_3350_price_and_change()
         price_str = f"¥{price / 10_000:.2f}万" if price >= 10_000 else f"¥{price:.0f}"
@@ -104,7 +137,6 @@ async def update_status():
     except Exception as e:
         print(f"Error during update cycle: {e}")
 
-
 @bot.slash_command(name="cy", description="Convert yen to USD")
 async def convert_yen(ctx: discord.ApplicationContext, yen: float):
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] /cy command called with ¥{yen:,.0f}")
@@ -116,137 +148,22 @@ async def convert_yen(ctx: discord.ApplicationContext, yen: float):
         print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] No cached exchange rate available.")
         await ctx.respond("Exchange rate not yet available. Please try again shortly.")
 
-
-@bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
-
-    content = message.content.strip().lower()
-
-    # Handle DMs
-    if isinstance(message.channel, discord.DMChannel):
-        if content in {"wen", "when", "schedule", "next"}:
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] DM command received from {message.author}: '{message.content}'")
-            
-            upcoming = get_tse_market_times()
-            if upcoming:
-                label, minutes = upcoming[0]
-                hours = minutes // 60
-                mins = minutes % 60
-                parts = []
-                if hours > 0:
-                    parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
-                if mins > 0 or not parts:
-                    parts.append(f"{mins} minute{'s' if mins != 1 else ''}")
-                time_str = " ".join(parts)
-                reply = f"🕐 Next up: **{label}** in **{time_str}**."
-                await message.channel.send(reply)
-            else:
-                await message.channel.send("📉 The Tokyo market is closed for the day.")
-            return
-
-        # Yen conversion via DM
-        try:
-            yen_amount = float(message.content.replace(",", "").strip("¥¥"))
-            if latest_usd_to_jpy:
-                usd_amount = yen_amount / latest_usd_to_jpy
-                await message.channel.send(f"¥{yen_amount:,.0f} is approximately ${usd_amount:,.2f} USD.")
-            else:
-                await message.channel.send("Exchange rate not yet available. Please try again shortly.")
-        except ValueError:
-            await message.channel.send("Please send a valid number in yen (e.g., 13000) or type `wen`.")
-        return
-
-    # Handle mentions in public channels
-    if bot.user in message.mentions and any(word in content for word in {"wen", "when", "schedule", "next"}):
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Mention with trigger word received from {message.author}: '{message.content}'")
-        
-        upcoming = get_tse_market_times()
-        if upcoming:
-            label, minutes = upcoming[0]
-            hours = minutes // 60
-            mins = minutes % 60
-            parts = []
-            if hours > 0:
-                parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
-            if mins > 0 or not parts:
-                parts.append(f"{mins} minute{'s' if mins != 1 else ''}")
-            time_str = " ".join(parts)
-            reply = f"🕐 Next up: **{label}** in **{time_str}**."
-            await message.channel.send(reply)
-        else:
-            await message.channel.send("📉 The Tokyo market is closed for the day.")
-
-
-@bot.slash_command(name="exportmembers", description="Export the member list with join dates")
-async def exportmembers(ctx: discord.ApplicationContext):
-    if ctx.guild is None:
-        await ctx.respond("This command must be used in a server.", ephemeral=True)
-        return
-
-    mod_role = discord.utils.get(ctx.guild.roles, name="Moderator")
-    author = ctx.author
-
-    if (mod_role not in author.roles) and (not author.guild_permissions.administrator):
-        await ctx.respond("You need the Moderator role or Administrator permission to use this command.", ephemeral=True)
-        return
-
-    await ctx.defer(ephemeral=True)
-
-    guild = ctx.guild
-    await guild.chunk()
-
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["Username", "User ID", "Joined At", "Join Method"])
-
-    for member in guild.members:
-        joined_at = member.joined_at.strftime("%Y-%m-%d %H:%M:%S") if member.joined_at else "Unknown"
-
-        if member.bot:
-            join_method = "Bot"
-        elif member.pending:
-            join_method = "Pending"
-        else:
-            join_method = "Standard"
-
-        writer.writerow([str(member), member.id, joined_at, join_method])
-
-    output.seek(0)
-    file = discord.File(fp=io.BytesIO(output.getvalue().encode()), filename="member_list.csv")
-
-    await ctx.respond("✅ Here is the exported member list with join methods:", file=file, ephemeral=True)
-
-
-#New slash command: /compare ticker1 ticker2 (only in #btc-derivatives)
-@bot.slash_command(name="compare", description="Compare two stock tickers by their current USD value")
-async def compare(ctx: discord.ApplicationContext, ticker1: str, ticker2: str):
-    
-    # Log command usage
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] /compare command used by {ctx.author} with args: {ticker1}, {ticker2}")
-
-	# Restrict to a specific channel
-    if ctx.channel.name != "btc-derivatives":
-        await ctx.respond("This command can only be used in the #btc-derivatives channel.", ephemeral=True)
-        return
-
+@bot.slash_command(name="pts", description="Get the latest PTS price for 3350 (Metaplanet) from SBI")
+async def pts(ctx: discord.ApplicationContext):
     await ctx.defer()
 
-    try:
-        stock1 = yf.Ticker(ticker1)
-        stock2 = yf.Ticker(ticker2)
+    # Get Yahoo price data
+    tse_price, change, usd_price = get_3350_price_and_change()
+    tse_price_str = f"¥{tse_price:.0f}"
+    usd_str = f"${usd_price:.2f}" if usd_price else ""
+    change_str = f"{change:+.2f}%"
 
-        price1 = stock1.history(period="1d")['Close'].iloc[-1]
-        price2 = stock2.history(period="1d")['Close'].iloc[-1]
+    # Get PTS price
+    pts_price = get_pts_price_3350()
+    pts_price_str = f"¥{pts_price}" if pts_price else "N/A"
 
-        ratio = price1 / price2
+    message = f"TSE {tse_price_str} / PTS {pts_price_str} {usd_str} {change_str}"
+    await ctx.respond(message)
 
-        await ctx.respond(f"**{ticker1.upper()} / {ticker2.upper()} = {ratio:.2f}**\n"
-                          f"{ticker1.upper()}: ${price1:.2f}\n"
-                          f"{ticker2.upper()}: ${price2:.2f}")
-    except Exception as e:
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Error comparing {ticker1} and {ticker2}: {e}")
-        await ctx.respond("❌ Failed to fetch or compare ticker prices. Please check the symbols and try again.")
 
 bot.run(TOKEN)
