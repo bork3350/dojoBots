@@ -83,10 +83,10 @@ def get_mtplf_price_and_change():
         else:
             jpy_price = None
 
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 📈 Price fetched: ${last:.2f}, Change: {change:+.2f}%, ¥{jpy_price:.0f}" if jpy_price else "JPY price not available.")
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ðŸ“ˆ Price fetched: ${last:.2f}, Change: {change:+.2f}%, Â¥{jpy_price:.0f}" if jpy_price else "JPY price not available.")
         return last, change, jpy_price
 
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Not enough data to calculate price change.")
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] âš ï¸ Not enough data to calculate price change.")
     return 0.0, 0.0, None
 
 
@@ -96,26 +96,26 @@ async def check_rate_limit():
     headers = {'Authorization': f'Bot {TOKEN}'}
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=headers) as response:
-            print("🕒 Discord API Rate Limit Headers:")
+            print("ðŸ•’ Discord API Rate Limit Headers:")
             print(f"  X-RateLimit-Limit:        {response.headers.get('X-RateLimit-Limit')}")
             
 # When bot is ready
 @client.event
 async def on_ready():
-    print(f"✔️ Metaplanet Bot Logged in as {client.user}")
+    print(f"âœ”ï¸ Metaplanet Bot Logged in as {client.user}")
     last_status = None
     global update_count
 
     while True:
         try:
             update_count += 1
-            print(f"\n🔄 Update Cycle #{update_count} Starting...")
+            print(f"\nðŸ”„ Update Cycle #{update_count} Starting...")
 
             # Fetch USD price, % change, and JPY equivalent
             price, change, jpy_price = get_mtplf_price_and_change()
             if price > 0:
                 price_str = f"${price:.2f}"
-                jpy_str = f"¥{jpy_price:.0f}" if jpy_price else ""
+                jpy_str = f"Â¥{jpy_price:.0f}" if jpy_price else ""
                 change_str = f"{change:+.2f}%"
                 combined_status = f"{price_str}  {jpy_str}  {change_str}"
             else:
@@ -127,17 +127,17 @@ async def on_ready():
                     activity=discord.CustomActivity(name=combined_status)
                 )
                 last_status = combined_status
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] 📰 Status updated to: '{combined_status}'")
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ðŸ“° Status updated to: '{combined_status}'")
 
                 # Optional: Check rate limit info
                 await check_rate_limit()
             else:
-                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Status unchanged, skipping update.")
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] âš ï¸ Status unchanged, skipping update.")
 
             await asyncio.sleep(15)
 
         except Exception as e:
-            print(f"❌ Error during update cycle: {e}")
+            print(f"âŒ Error during update cycle: {e}")
             await asyncio.sleep(15)
 
 @client.event
@@ -155,77 +155,77 @@ async def on_message(message):
 
     if content_lower.startswith("!add-bad") or content_lower.startswith("!remove-bad") or content_lower.startswith("!list-bad"):
         if not is_mod_or_admin(message.author):
-            await message.channel.send("❌ You don't have permission to use this command.")
+            await message.channel.send("âŒ You don't have permission to use this command.")
             return
 
         parts = content.split(maxsplit=2)
         if len(parts) < 2:
-            await message.channel.send("❌ Invalid command format.")
+            await message.channel.send("âŒ Invalid command format.")
             return
 
         cmd = parts[0].lower()
 
         if cmd == "!list-bad":
             if len(parts) != 2:
-                await message.channel.send("❌ Usage: !list-bad <channel_name>")
+                await message.channel.send("âŒ Usage: !list-bad <channel_name>")
                 return
             channel_name = parts[1].lower()
             # Get channel by name in guild
             target_channel = discord.utils.get(message.guild.channels, name=channel_name)
             if not target_channel:
-                await message.channel.send(f"❌ Channel '{channel_name}' not found.")
+                await message.channel.send(f"âŒ Channel '{channel_name}' not found.")
                 return
 
             banned_list = banned_words.get(channel_name, [])
             if banned_list:
                 banned_formatted = ", ".join(banned_list)
-                await message.channel.send(f"🛑 Banned words/phrases in #{channel_name}: {banned_formatted}")
+                await message.channel.send(f"ðŸ›‘ Banned words/phrases in #{channel_name}: {banned_formatted}")
             else:
-                await message.channel.send(f"ℹ️ No banned words/phrases set for #{channel_name}.")
+                await message.channel.send(f"â„¹ï¸ No banned words/phrases set for #{channel_name}.")
 
         elif cmd == "!add-bad":
             if len(parts) != 3:
-                await message.channel.send("❌ Usage: !add-bad <channel_name> <phrase>")
+                await message.channel.send("âŒ Usage: !add-bad <channel_name> <phrase>")
                 return
             channel_name = parts[1].lower()
             phrase = parts[2].lower()
 
             target_channel = discord.utils.get(message.guild.channels, name=channel_name)
             if not target_channel:
-                await message.channel.send(f"❌ Channel '{channel_name}' not found.")
+                await message.channel.send(f"âŒ Channel '{channel_name}' not found.")
                 return
 
             banned_list = banned_words.get(channel_name, [])
             if phrase in banned_list:
-                await message.channel.send(f"⚠️ '{phrase}' is already banned in #{channel_name}.")
+                await message.channel.send(f"âš ï¸ '{phrase}' is already banned in #{channel_name}.")
                 return
 
             banned_list.append(phrase)
             banned_words[channel_name] = banned_list
             save_banned_words()
-            await message.channel.send(f"✅ Added banned phrase '{phrase}' to #{channel_name}.")
+            await message.channel.send(f"âœ… Added banned phrase '{phrase}' to #{channel_name}.")
 
         elif cmd == "!remove-bad":
             if len(parts) != 3:
-                await message.channel.send("❌ Usage: !remove-bad <channel_name> <phrase>")
+                await message.channel.send("âŒ Usage: !remove-bad <channel_name> <phrase>")
                 return
             channel_name = parts[1].lower()
             phrase = parts[2].lower()
 
             target_channel = discord.utils.get(message.guild.channels, name=channel_name)
             if not target_channel:
-                await message.channel.send(f"❌ Channel '{channel_name}' not found.")
+                await message.channel.send(f"âŒ Channel '{channel_name}' not found.")
                 return
 
             banned_list = banned_words.get(channel_name, [])
             if phrase not in banned_list:
-                await message.channel.send(f"⚠️ '{phrase}' is not in the banned list for #{channel_name}.")
+                await message.channel.send(f"âš ï¸ '{phrase}' is not in the banned list for #{channel_name}.")
                 return
 
             banned_list.remove(phrase)
             banned_words[channel_name] = banned_list
             save_banned_words()
-            await message.channel.send(f"✅ Removed banned phrase '{phrase}' from #{channel_name}.")
+            await message.channel.send(f"âœ… Removed banned phrase '{phrase}' from #{channel_name}.")
 
         return
 
@@ -247,13 +247,13 @@ async def on_message(message):
                 await message.delete()
 
                 # DM user explaining the deletion
-                dm_msg = f"Your message in #{channel_name} was deleted because it contained a banned phrase: '{triggered_phrase}'. Please adhere to the server rules."
+                dm_msg = f"Your message was deleted because it contained a banned phrase: '{triggered_phrase}' in #{channel_name}. Try moving this topic to #off-topic or #btc-derivatives."
                 await message.author.send(dm_msg)
 
                 # Notify moderators channel
-                mod_channel = discord.utils.get(message.guild.channels, name="moderator-only")
+                mod_channel = discord.utils.get(message.guild.channels, name="bot-logs")
                 if mod_channel:
-                    notify_msg = (f"🚨 Message deleted in #{channel_name}.\n"
+                    notify_msg = (f"ðŸš¨ Message deleted in #{channel_name}.\n"
                                   f"User: {message.author.mention} ({message.author})\n"
                                   f"Phrase: '{triggered_phrase}'\n"
                                   f"Original message: {content}")
